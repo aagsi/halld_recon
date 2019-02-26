@@ -16,13 +16,16 @@ void DEventWriterROOT::Initialize(JEventLoop* locEventLoop)
 	// set options
 	storePullInfo = false;
 	storeErrMInfo = false;
-	if(gPARMS->Exists("ROOT:SAVEPULLS"))
+	storeTrackingPullInfo = false;
+	if(gPARMS->Exists("ROOT:SAVE_PULLS"))
 		gPARMS->GetParameter("ROOT:SAVE_PULLS", storePullInfo);
-	if(gPARMS->Exists("ROOT:SAVEPULLS"))
+	if(gPARMS->Exists("ROOT:SAVE_TRACKING_PULLS"))
 		gPARMS->GetParameter("ROOT:SAVE_TRACKING_PULLS", storeTrackingPullInfo);
-	if(gPARMS->Exists("ROOT:SAVEERRORMATRICES"))
+	if(gPARMS->Exists("ROOT:SAVE_ERROR_MATRICES"))
 		gPARMS->GetParameter("ROOT:SAVE_ERROR_MATRICES", storeErrMInfo);
 
+
+	//cout << "ROOT OUTPUT OPTIONS: " << storePullInfo << " " << storeTrackingPullInfo << " " << storeErrMInfo << endl;
 
 	// set up reactions
 	locEventLoop->GetSingle(dAnalysisUtilities);
@@ -186,6 +189,9 @@ void DEventWriterROOT::Create_DataTree(const DReaction* locReaction, JEventLoop*
 	//create branches for combos
 	locBranchRegister.Register_Single<UChar_t>("NumUnusedTracks");
 	Create_Branches_Combo(locBranchRegister, locReaction, locIsMCDataFlag, locPositionToNameMap);
+
+	//create options branches for kinematic fit data and results
+	Create_KinFitBranches_DataTree(locBranchRegister, locEventLoop, locReaction, locIsMCDataFlag);
 
 	//Custom branches
 	Create_CustomBranches_DataTree(locBranchRegister, locEventLoop, locReaction, locIsMCDataFlag);
@@ -1224,6 +1230,9 @@ void DEventWriterROOT::Fill_DataTree(JEventLoop* locEventLoop, const DReaction* 
 		}
 	}
 
+	// kinematic fit data
+	Fill_KinFitBranches_DataTree(locTreeFillData, locEventLoop, locReaction, locMCReaction, locMCThrownsToSave, locMCThrownMatching, locDetectorMatches, locBeamPhotons, locChargedTrackHypotheses, locNeutralParticleHypotheses, locParticleCombos);
+
 	//CUSTOM
 	Fill_CustomBranches_DataTree(locTreeFillData, locEventLoop, locReaction, locMCReaction, locMCThrownsToSave, locMCThrownMatching, locDetectorMatches, locBeamPhotons, locChargedTrackHypotheses, locNeutralParticleHypotheses, locParticleCombos);
 
@@ -2055,7 +2064,7 @@ void DEventWriterROOT::Fill_ComboNeutralData(DTreeFillData* locTreeFillData, uns
 
 void DEventWriterROOT::Create_KinFitBranches_DataTree(DTreeBranchRegister& locBranchRegister, JEventLoop* locEventLoop, const DReaction* locReaction, bool locIsMCDataFlag) const
 {
-if(storeErrMInfo || storePullInfo){
+if(storeErrMInfo || storePullInfo || storeTrackingPullInfo){
 
     //Get the fit-type (P4, P4 + Vertex, and Vertex-only)
     DKinFitType kfitType = locReaction->Get_KinFitType();
@@ -2139,7 +2148,7 @@ if(storeErrMInfo || storePullInfo){
             assignMap[finalchargedPIDs.at(loc_j)]--;
             if(branchName != "nada"){
                   if(myFlag)setTreePullBranches(locBranchRegister,branchName,kfitType,dInitNumComboArraySize,false);
-                  if(myFlag)setTreeTrackingPullBranches(locBranchRegister,branchName,dInitNumComboArraySize);
+                  if(storeTrackingPullInfo)setTreeTrackingPullBranches(locBranchRegister,branchName,dInitNumComboArraySize);
                    if(storeErrMInfo)locBranchRegister.Register_FundamentalArray< Float_t >(Build_BranchName(branchName,"ErrMatrix"),particleCovM,nEntriesParticleCov);
             }
         }
@@ -2173,11 +2182,13 @@ void DEventWriterROOT::Fill_KinFitBranches_DataTree(DTreeFillData* locTreeFillDa
 			const vector<const DBeamPhoton*>& locBeamPhotons, const vector<const DChargedTrackHypothesis*>& locChargedHypos,
 			const vector<const DNeutralParticleHypothesis*>& locNeutralHypos, const deque<const DParticleCombo*>& locParticleCombos) const
 {
-if(storeErrMInfo || storePullInfo){
+if(storeErrMInfo || storePullInfo || storeTrackingPullInfo){
 
-	locTreeFillData->Fill_Single<Int_t>("numEntries_ParticleErrM", nEntriesParticleCov);
-	locTreeFillData->Fill_Single<Int_t>("numEntries_ShowerErrM", nEntriesShowerCov);
-
+	if(storeErrMInfo) {
+		locTreeFillData->Fill_Single<Int_t>("numEntries_ParticleErrM", nEntriesParticleCov);
+		locTreeFillData->Fill_Single<Int_t>("numEntries_ShowerErrM", nEntriesShowerCov);
+	}
+	
     bool writeOutPulls =  getPullFlag( locReaction );
     bool writeOutTrackingPulls =  getTrackingPullFlag( locReaction );
     //Retreive and fill pull-information:
