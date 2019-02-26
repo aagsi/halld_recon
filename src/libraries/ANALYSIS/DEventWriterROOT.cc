@@ -2572,7 +2572,7 @@ void DEventWriterROOT::fillTreeParticleErrMBranches(DTreeFillData* locTreeFillDa
 	   //--------------------------------------
 	   for(int row=0;row<7;row++){
 		   //--------------------------------------
-		   for(int col=0;col<7;col++){
+		   for(int col=row;col<7;col++){
 			    if(col >= row){
 					matrixEl = errMatrix[row][col];
 					locTreeFillData->Fill_Array<Float_t>(Build_BranchName(yourBranchName, "ErrMatrix"),matrixEl,mIndex);
@@ -2599,7 +2599,7 @@ void DEventWriterROOT::fillTreeShowerErrMBranches(DTreeFillData* locTreeFillData
 	   //--------------------------------------
 	   for(int row=0;row<5;row++){
 		   //--------------------------------------
-		   for(int col=0;col<5;col++){
+		   for(int col=row;col<5;col++){
 			    if(col >= row){
 				   matrixEl = errMatrix[row][col];
 			       locTreeFillData->Fill_Array<Float_t>(Build_BranchName(yourBranchName, "ErrMatrix"),matrixEl,mIndex);
