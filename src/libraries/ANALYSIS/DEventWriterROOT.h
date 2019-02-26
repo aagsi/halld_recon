@@ -165,13 +165,14 @@ class DEventWriterROOT : public JObject
 
 		//Decide whether to store pull-/error matrix- information:
 		mutable bool storePullInfo = false;
+		mutable bool storeTrackingPullInfo = false;
 		mutable bool storeErrMInfo = false; 
 		
 		void Create_KinFitBranches_DataTree(DTreeBranchRegister& locBranchRegister, JEventLoop* locEventLoop, const DReaction* locReaction, bool locIsMCDataFlag) const;
 		void Fill_KinFitBranches_DataTree(DTreeFillData* locTreeFillData, JEventLoop* locEventLoop, const DReaction* locReaction, const DMCReaction* locMCReaction, const vector<const DMCThrown*>& locMCThrowns,
-			const DMCThrownMatching* locMCThrownMatching, const DDetectorMatches* locDetectorMatches,
-			const vector<const DBeamPhoton*>& locBeamPhotons, const vector<const DChargedTrackHypothesis*>& locChargedHypos,
-			const vector<const DNeutralParticleHypothesis*>& locNeutralHypos, const deque<const DParticleCombo*>& locParticleCombos) const;
+					const DMCThrownMatching* locMCThrownMatching, const DDetectorMatches* locDetectorMatches,
+					const vector<const DBeamPhoton*>& locBeamPhotons, const vector<const DChargedTrackHypothesis*>& locChargedHypos,
+					const vector<const DNeutralParticleHypothesis*>& locNeutralHypos, const deque<const DParticleCombo*>& locParticleCombos) const;
 
 		//Stuff to name and fill the branches correctly:
 		//Meaning, if is more than one particle of the same species (e.g. gamma),
@@ -186,6 +187,7 @@ class DEventWriterROOT : public JObject
 		//****************************************************************************************************************
 
 		mutable map<const DReaction*, bool> writePulls;
+		mutable map<const DReaction*, bool> writeTrackingPulls;
 
 		//Lets try to get some pulls:
 		//****************************************************************************************************************
@@ -198,15 +200,20 @@ class DEventWriterROOT : public JObject
 		//****************************************************************************************************************
 		//Set the tree branches.
 		void setTreePullBranches(DTreeBranchRegister& locBranchRegister,string yourBranchName,DKinFitType yourFitType, int yourNCombos, bool isNeutral) const;
+		void setTreeTrackingPullBranches(DTreeBranchRegister& locBranchRegister,string yourBranchName, int yourNCombos) const;
 
 		//Fill the branches:
 		void fillTreePullBranches(DTreeFillData* locTreeFillData,string yourBranchName,DKinFitType yourFitType,map<DKinFitPullType, double> yourPullsMap, int yourIndex, bool isNeutral) const;
+		void fillTreeTrackingPullBranches(DTreeFillData* locTreeFillData,string yourBranchName,int yourIndex,const DTrackTimeBased* timebasedtrack,
+													const DKinematicData* kinfittrack) const;
 		//****************************************************************************************************************
 
 		//Check, if pull-information is available (preserves crashes)
 		//****************************************************************************************************************
 		void setPullFlag(const DReaction* currentReaction, bool myFlag) const;
 		bool getPullFlag(const DReaction* currentReaction) const;
+		void setTrackingPullFlag(const DReaction* currentReaction, bool myFlag) const;
+		bool getTrackingPullFlag(const DReaction* currentReaction) const;
 		//****************************************************************************************************************
 
 		//Store the error martices for the kinematic fit:
@@ -229,6 +236,14 @@ class DEventWriterROOT : public JObject
 		 //Fill tree for 5x5-Matrices (showers):
 		//****************************************************************************************************************
 		void fillTreeShowerErrMBranches(DTreeFillData* locTreeFillData,string yourBranchName, const DNeutralShower* shower) const;
+		//****************************************************************************************************************
+
+		 //Calculate 5x5 tracking pulls
+		//****************************************************************************************************************
+		vector<double> CalculateTrackingPulls(const DTrackTimeBased* timebasedtrack, const DKinematicData* kinfittrack) const;
+		// Beam position and direction
+ 	 	DVector2 beam_center, beam_dir;
+  		double beam_z0;
 		//****************************************************************************************************************
 
 };

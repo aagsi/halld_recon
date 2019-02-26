@@ -17,9 +17,11 @@ void DEventWriterROOT::Initialize(JEventLoop* locEventLoop)
 	storePullInfo = false;
 	storeErrMInfo = false;
 	if(gPARMS->Exists("ROOT:SAVEPULLS"))
-		gPARMS->GetParameter("ROOT:SAVEPULLS", storePullInfo);
+		gPARMS->GetParameter("ROOT:SAVE_PULLS", storePullInfo);
+	if(gPARMS->Exists("ROOT:SAVEPULLS"))
+		gPARMS->GetParameter("ROOT:SAVE_TRACKING_PULLS", storeTrackingPullInfo);
 	if(gPARMS->Exists("ROOT:SAVEERRORMATRICES"))
-		gPARMS->GetParameter("ROOT:SAVEERRORMATRICES", storeErrMInfo);
+		gPARMS->GetParameter("ROOT:SAVE_ERROR_MATRICES", storeErrMInfo);
 
 
 	// set up reactions
@@ -55,6 +57,18 @@ void DEventWriterROOT::Initialize(JEventLoop* locEventLoop)
 	DGeometry* locGeometry = locApplication->GetDGeometry(locEventLoop->GetJEvent().GetRunNumber());
 	dTargetCenterZ = 65.0;
 	locGeometry->GetTargetZ(dTargetCenterZ);
+	
+	// Get beam parameters - position and direction
+	JCalibration *jcalib = locApplication->GetJCalibration((locEventLoop->GetJEvent()).GetRunNumber());
+    map<string, double> beam_vals;
+    jcalib->Get("PHOTON_BEAM/beam_spot",beam_vals);
+    beam_center.Set(beam_vals["x"], beam_vals["y"]); 
+    beam_dir.Set(beam_vals["dxdz"], beam_vals["dydz"]);
+    //jout << " Beam spot: x=" << beam_center.X() << " y=" << beam_center.Y()
+	//	 << " z=" << beam_vals["z"]
+	//	 << " dx/dz=" << beam_dir.X() << " dy/dz=" << beam_dir.Y() << endl;
+    beam_z0 = beam_vals["z"];
+
 
 	//CREATE TTREES
 	for(auto& locVertexInfo : locVertexInfos)
@@ -2125,6 +2139,7 @@ if(storeErrMInfo || storePullInfo){
             assignMap[finalchargedPIDs.at(loc_j)]--;
             if(branchName != "nada"){
                   if(myFlag)setTreePullBranches(locBranchRegister,branchName,kfitType,dInitNumComboArraySize,false);
+                  if(myFlag)setTreeTrackingPullBranches(locBranchRegister,branchName,dInitNumComboArraySize);
                    if(storeErrMInfo)locBranchRegister.Register_FundamentalArray< Float_t >(Build_BranchName(branchName,"ErrMatrix"),particleCovM,nEntriesParticleCov);
             }
         }
@@ -2164,6 +2179,7 @@ if(storeErrMInfo || storePullInfo){
 	locTreeFillData->Fill_Single<Int_t>("numEntries_ShowerErrM", nEntriesShowerCov);
 
     bool writeOutPulls =  getPullFlag( locReaction );
+    bool writeOutTrackingPulls =  getTrackingPullFlag( locReaction );
     //Retreive and fill pull-information:
     //######################################################################################################################
     DKinFitType kfitType = locReaction->Get_KinFitType();
@@ -2199,13 +2215,15 @@ if(storeErrMInfo || storePullInfo){
         //Look at the decay products:
         //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
         vector<const DKinematicData*> finalParticlesMeasured = locParticleCombos.at(iPC)->Get_FinalParticles_Measured(locReaction, d_AllCharges);
+        vector<const DKinematicData*> finalParticles = locParticleCombos.at(iPC)->Get_FinalParticles(locReaction, d_AllCharges);
         vector<const JObject*> finalParticleObjects = locParticleCombos.at(iPC)->Get_FinalParticle_SourceObjects(d_AllCharges);
         nMeasuredFinalParticles = finalParticlesMeasured.size();
 
         //----------------------------------------------------------------------------
         for(int iFP=0;iFP<nMeasuredFinalParticles;iFP++){
             const DKinematicData* part = finalParticlesMeasured.at(iFP);
-            const  DNeutralShower* sh = dynamic_cast<const DNeutralShower*>(finalParticleObjects.at(iFP));
+            const DNeutralShower* sh = dynamic_cast<const DNeutralShower*>(finalParticleObjects.at(iFP));
+            const DTrackTimeBased* timebasedtrack = dynamic_cast<const DTrackTimeBased*>(finalParticleObjects.at(iFP));
             bool isNeutral = false;
 
             map<DKinFitPullType, double>  someMap;
@@ -2226,8 +2244,12 @@ if(storeErrMInfo || storePullInfo){
             assignMap[currentPID]--;
             //-----------------------------------------------------
             if(branchName != "nada"){
-                if(writeOutPulls)fillTreePullBranches(locTreeFillData,branchName,kfitType,someMap,iPC,isNeutral);
-                fillTreeErrMBranches(locTreeFillData,branchName,kfitType,part,sh,isNeutral);
+                if(writeOutPulls)
+                	fillTreePullBranches(locTreeFillData,branchName,kfitType,someMap,iPC,isNeutral);
+                if(storeErrMInfo)
+                	fillTreeErrMBranches(locTreeFillData,branchName,kfitType,part,sh,isNeutral);
+            	if(writeOutTrackingPulls && !isNeutral)
+					fillTreeTrackingPullBranches(locTreeFillData,branchName,iPC,timebasedtrack,finalParticles.at(iFP));
             }
             //-----------------------------------------------------
             if(writeOutPulls)someMap.clear();
@@ -2349,9 +2371,8 @@ map<DKinFitPullType, double> DEventWriterROOT::getPulls(const JObject* particle,
 
 	return myMap;
 }
+
 //*************************************************************************************************************************************
-
-
 //Get the pull-features:
 //*************************************************************************************************************************************
 void DEventWriterROOT::setTreePullBranches(DTreeBranchRegister& locBranchRegister,string yourBranchName,DKinFitType yourFitType, int yourNCombos, bool isNeutral) const
@@ -2384,8 +2405,8 @@ void DEventWriterROOT::setTreePullBranches(DTreeBranchRegister& locBranchRegiste
         locBranchRegister.Register_FundamentalArray<Double_t>(Build_BranchName(yourBranchName,"Xz_Pull"),locArraySizeString, yourNCombos);
     }
 }
-//*************************************************************************************************************************************
 
+//*************************************************************************************************************************************
 //Fill the tree branches:
 //*************************************************************************************************************************************
 void DEventWriterROOT::fillTreePullBranches(DTreeFillData* locTreeFillData,string yourBranchName,DKinFitType yourFitType,map<DKinFitPullType, double> yourPullsMap, int yourIndex, bool isNeutral) const
@@ -2416,8 +2437,82 @@ void DEventWriterROOT::fillTreePullBranches(DTreeFillData* locTreeFillData,strin
         locTreeFillData->Fill_Array<Double_t>(Build_BranchName(yourBranchName, "Xz_Pull"), yourPullsMap.find(d_XzPull)->second,yourIndex);
     }
 }
-//*************************************************************************************************************************************
 
+
+//q/pT, tan(lambda), phi,z,D
+
+//*************************************************************************************************************************************
+//Get the pull-features:
+//*************************************************************************************************************************************
+void DEventWriterROOT::setTreeTrackingPullBranches(DTreeBranchRegister& locBranchRegister,string yourBranchName, int yourNCombos) const
+{
+    string locArraySizeString = "NumCombos";
+
+	locBranchRegister.Register_FundamentalArray<Double_t>(Build_BranchName(yourBranchName,"qOverPt_Pull"),locArraySizeString, yourNCombos);
+	locBranchRegister.Register_FundamentalArray<Double_t>(Build_BranchName(yourBranchName,"TanLambda_Pull"),locArraySizeString, yourNCombos);
+	locBranchRegister.Register_FundamentalArray<Double_t>(Build_BranchName(yourBranchName,"Phi_Pull"),locArraySizeString, yourNCombos);
+	locBranchRegister.Register_FundamentalArray<Double_t>(Build_BranchName(yourBranchName,"Z_Pull"),locArraySizeString, yourNCombos);
+	locBranchRegister.Register_FundamentalArray<Double_t>(Build_BranchName(yourBranchName,"D_Pull"),locArraySizeString, yourNCombos);
+}
+
+//*************************************************************************************************************************************
+//Fill the tree branches:
+//*************************************************************************************************************************************
+void DEventWriterROOT::fillTreeTrackingPullBranches(DTreeFillData* locTreeFillData,string yourBranchName,int yourIndex,const DTrackTimeBased* timebasedtrack,
+													const DKinematicData* kinfittrack) const 
+{
+	vector<double> pulls = CalculateTrackingPulls(timebasedtrack,kinfittrack);	
+
+	locTreeFillData->Fill_Array<Double_t>(Build_BranchName(yourBranchName, "qOverPt_Pull"), pulls[0], yourIndex);
+	locTreeFillData->Fill_Array<Double_t>(Build_BranchName(yourBranchName, "TanLambda_Pull"), pulls[1], yourIndex);
+	locTreeFillData->Fill_Array<Double_t>(Build_BranchName(yourBranchName, "Phi_Pull"), pulls[2], yourIndex);
+	locTreeFillData->Fill_Array<Double_t>(Build_BranchName(yourBranchName, "Z_Pull"), pulls[3], yourIndex);
+	locTreeFillData->Fill_Array<Double_t>(Build_BranchName(yourBranchName, "D_Pull"), pulls[4], yourIndex); 
+
+}
+
+
+//*************************************************************************************************************************************
+//Calculate the tracking pulls
+// Note that the measured tracks are in the 5-component representation used by the tracking, but the
+// kinematic fit results aren't, so we can recalculate them 
+//*************************************************************************************************************************************
+vector<double> DEventWriterROOT::CalculateTrackingPulls(const DTrackTimeBased* timebasedtrack, const DKinematicData* kinfittrack) const
+{
+	const double EPS=1e-8;
+
+	vector<double> pulls(5,0.);
+	double state_vector[5];
+	timebasedtrack->TrackingStateVector(state_vector);
+	
+	double fitted_qOverPt = kinfittrack->charge() / kinfittrack->pperp();
+	double fitted_theta = acos(kinfittrack->pz()/kinfittrack->pmag());
+	double fitted_tanLambda = tan(TMath::Pi() - fitted_theta);
+	double fitted_phi = atan2(kinfittrack->y(), kinfittrack->x());
+	double fitted_z = kinfittrack->z();
+	
+    DVector2 beam_pos = beam_center + (fitted_z - beam_z0)*beam_dir;
+    double dx = kinfittrack->x() - beam_pos.X();
+    double dy = kinfittrack->y() - beam_pos.Y();
+
+    double fitted_D = sqrt(dx*dx+dy*dy) + EPS; // to guard against division by zero errors...
+    double cosphi = cos(fitted_phi);
+    double sinphi = sin(fitted_phi);     
+    if ( (dx>0.0 && sinphi>0.0) || (dy<0.0 && cosphi>0.0)
+  		|| (dy>0.0 && cosphi<0.0) || (dx<0.0 && sinphi<0.0) ) 
+		fitted_D *= -1.;
+
+	pulls[0] = (state_vector[0] - fitted_qOverPt) / (*(timebasedtrack->TrackingErrorMatrix()))[0][0];
+	pulls[1] = (state_vector[1] - fitted_tanLambda) / (*(timebasedtrack->TrackingErrorMatrix()))[1][1];
+	pulls[2] = (state_vector[2] - fitted_phi) / (*(timebasedtrack->TrackingErrorMatrix()))[2][2];
+	pulls[3] = (state_vector[3] - fitted_z) / (*(timebasedtrack->TrackingErrorMatrix()))[3][3];
+	pulls[4] = (state_vector[4] - fitted_D) / (*(timebasedtrack->TrackingErrorMatrix()))[4][4];
+	
+	return pulls;
+}
+
+
+//*************************************************************************************************************************************
 //Make sure, the pull information is written out, when available
 //*********************************************************************************************************************
 void DEventWriterROOT::setPullFlag(const DReaction* currentReaction, bool myFlag) const
@@ -2428,6 +2523,21 @@ void DEventWriterROOT::setPullFlag(const DReaction* currentReaction, bool myFlag
 bool DEventWriterROOT::getPullFlag(const DReaction* currentReaction) const
 {
     bool outFlag = writePulls.find(currentReaction)->second;
+    return outFlag;
+}
+//*********************************************************************************************************************
+
+//*************************************************************************************************************************************
+//Make sure, the pull information is written out, when available - these are the 5x5 tracking
+//*********************************************************************************************************************
+void DEventWriterROOT::setTrackingPullFlag(const DReaction* currentReaction, bool myFlag) const
+{
+    writeTrackingPulls[currentReaction] = myFlag;
+}
+
+bool DEventWriterROOT::getTrackingPullFlag(const DReaction* currentReaction) const
+{
+    bool outFlag = writeTrackingPulls.find(currentReaction)->second;
     return outFlag;
 }
 //*********************************************************************************************************************
