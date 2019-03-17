@@ -13,32 +13,30 @@
 DCCALShower::DCCALShower()
 {
 
-  type     =  0;
-  dime     =  0;    
-  status   =  0;
-  id       =  0;
-  idmax    =  0;
-  E        =  0;
-  x        =  0;
-  y        =  0;
-  z        =  0;
-  x1       =  0;
-  y1       =  0;
-  chi2     =  0;
-  sigma_E  =  0;
-  Emax     =  0;
-  time     =  0;
-  sigma_t  =  0;
+  	type     =  0;
+  	dime     =  0;    
+  	status   =  0;
+  	id       =  0;
+  	idmax    =  0;
+  	E        =  0;
+  	x        =  0;
+  	y        =  0;
+  	z        =  0;
+  	x1       =  0;
+  	y1       =  0;
+  	chi2     =  0;
+  	sigma_E  =  0;
+  	Emax     =  0;
+  	time     =  0;
+  	sigma_t  =  0;
   
-  for(int icell=0; icell<MAX_CC; icell++) {
-    id_storage[icell] = 0;
-    en_storage[icell] = 0;
-    t_storage[icell]  = 0;
-  }
+  	for(int icell=0; icell<MAX_CC; icell++) {
+    	  id_storage[icell] = 0;
+    	  en_storage[icell] = 0;
+    	  t_storage[icell]  = 0;
+  	}
   
 }
 
-DCCALShower::~DCCALShower()
-{
+DCCALShower::~DCCALShower() {}
 
-}
