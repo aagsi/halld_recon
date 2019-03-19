@@ -243,12 +243,12 @@ jerror_t DCCALShower_factory::evnt(JEventLoop *eventLoop, uint64_t eventnumber)
 
 	
 	// first sort the hits into separate pattens based on timing:
-	
+	/*
 	sort( ccalhits.begin(), ccalhits.end(), TimeSortCondition );
 	vector< vector<const DCCALHit*> > hit_patterns;
 	int numPatterns = getHitPatterns( ccalhits, hit_patterns );
 	if( !(numPatterns) ) return NOERROR;
-	
+	*/
 	
 	int n_h_clusters = 0;
 	vector< ccalcluster_t > ccalcluster; // will hold all clusters
@@ -257,190 +257,196 @@ jerror_t DCCALShower_factory::evnt(JEventLoop *eventLoop, uint64_t eventnumber)
 
 	// The Fortran code below uses common blocks, so we need to set a lock
 	// so that different threads are not running on top of each other
+	
 	std::unique_lock<std::mutex> lck(CCAL_MUTEX);
 
-	for( int ipattern = 0; ipattern < numPatterns; ++ipattern ) {
-	
-	  vector< const DCCALHit* > hitPattern = hit_patterns[ipattern];
-	  n_h_hits = (int)hitPattern.size();
-	  vector< const DCCALHit* > hit_storage;
-	
-	
-	
-	  // if a single module has multiple hits in same event, one will overwrite the 
-	  // other in the cluster pattern. for now just keep hit with larger energy.
-	
-	  cleanHitPattern( hitPattern, hit_storage );
-	  n_h_hits = (int)hit_storage.size();
-	
-	
-	
-	  static int ich[MCOL][MROW];
-	  for(int icol = 1; icol <= MCOL; ++icol) {
-	    for(int irow = 1; irow <= MROW; ++irow) {
-	      ECH(icol,irow)     = 0;
-	      STAT_CH(icol,irow) = 0;
-	      if(icol>=6 && icol<=7 && irow>=6 && irow<=7) { STAT_CH(icol,irow) = -1; }
-	      ich[icol-1][irow-1] = (12-icol)+(12-irow)*12;
-	    }
-	  }
-	  
-	  NCOL = 12; NROW = 12;
-	  SET_XSIZE = CRYS_SIZE_X; SET_YSIZE = CRYS_SIZE_Y;
-	  
-	  for (int i = 0; i < n_h_hits; i++) {
-	    const DCCALHit *ccalhit = hit_storage[i];  
-	    int row   = 12-ccalhit->row;
-	    int col   = 12-ccalhit->column;
-	    ECH(col,row) = int(ccalhit->E*10.+0.5);
-	  }
-	  
-	  main_island_();
-	  
-	  int init_clusters = adcgam_cbk_.nadcgam;
-	  for(int k = 0; k < init_clusters; ++k)  {
-	  
-	    cluster_t clust_storage; // stores hit information of cluster cells
-	    ccalcluster_t clust;     // stores cluster parameters
 
-	    // results of main_island_():
-	    float e     = adcgam_cbk_.u.fadcgam[k][0];
-	    float x     = adcgam_cbk_.u.fadcgam[k][1];
-	    float y     = adcgam_cbk_.u.fadcgam[k][2];
-	    float xc    = adcgam_cbk_.u.fadcgam[k][4];
-	    float yc    = adcgam_cbk_.u.fadcgam[k][5];
-	    float chi2  = adcgam_cbk_.u.fadcgam[k][6];
-	    int type    = adcgam_cbk_.u.iadcgam[k][7];
-	    int dime    = adcgam_cbk_.u.iadcgam[k][8];
-	    int status  = adcgam_cbk_.u.iadcgam[k][10];
-	    
-	    if( dime < MIN_CLUSTER_BLOCK_COUNT ) { continue; } 
-	    if( e < MIN_CLUSTER_ENERGY || e > MAX_CLUSTER_ENERGY ) { continue; }
-	    n_h_clusters += 1;
-	  
-	  
-	    //------------------------------------------------------------
-	    //  Do energy and position corrections:
-	  
-	    float ecellmax = -1; int idmax = -1;
-	    float sW   = 0.0;
-	    float xpos = 0.0;
-	    float ypos = 0.0;
-	    float e1   = 0.0;
-	    float W;
-	  
-	    // get id of cell with max energy:
-	    for(int j = 0; j < (dime>MAX_CC ? MAX_CC : dime); ++j) {
-	      float ecell = 1.e-4*(float)ICL_IENER(k,j);
-	      int id = ICL_INDEX(k,j);
-	      int kx = (id/100), ky = id%100;
-	      id = ich[kx-1][ky-1];
-	      e1 += ecell;
-	      if(ecell>ecellmax) {
-	        ecellmax = ecell;
-	        idmax = id;
-	      }
-	    }
-	    // x and y pos of max cell
-	    float xmax    = ccalGeom.positionOnFace(idmax).X();
-	    float ymax    = ccalGeom.positionOnFace(idmax).Y();
-	  
-	  
-	    // loop over hits in cluster and fill clust_storage
-	    int ccal_id;
-	    for(int j = 0; j < (dime>MAX_CC ? MAX_CC : dime); ++j) {
-	      int id = ICL_INDEX(k,j);
-	      int kx = (id/100), ky = id%100;
-	      ccal_id = ich[kx-1][ky-1];
-	    
-	      float ecell  = 1.e-4*(float)ICL_IENER(k,j);
-	      float xcell  = ccalGeom.positionOnFace(ccal_id).X();
-	      float ycell  = ccalGeom.positionOnFace(ccal_id).Y();
-	    
-	      if(type%10 == 1 || type%10 == 2) {
-	        xcell += xc;
-	        ycell += yc;
-	      }
-	    
-	      
-	      float hittime = 0.;
-	      for(int ihit = 0; ihit < n_h_hits; ihit++) {
-	        int trialid = 12*(hit_storage[ihit]->row) + hit_storage[ihit]->column;
-	        if(trialid == ccal_id) {
-	          hittime = hit_storage[ihit]->t;
-		  //iop = hit_storage[ihit]->intOverPeak;
-		  break;
-	        }
-	      }
-	    
-	      if( ecell > 0.009 && fabs(xcell-xmax) < 6. && fabs(ycell-ymax) < 6.) {
-	        W = 4.2 + log(ecell/e);
-	        if(W > 0) { // i.e. if cell has > 1.5% of cluster energy
-		  sW   += W;
-		  xpos += xcell*W;
-		  ypos += ycell*W;
-	        }
-	      }
-	    
-	      clust_storage.id[j] = ccal_id;
-	      clust_storage.E[j]  = ecell;
-	      clust_storage.x[j]  = xcell;
-	      clust_storage.y[j]  = ycell;
-	      clust_storage.t[j]  = hittime;
-	    
-	    }
-
-	    for(int j = dime; j < MAX_CC; ++j)  // zero the rest
-	      clust_storage.id[j] = -1;
-	  
-	    float weightedtime = getEnergyWeightedTime( clust_storage, dime );
-	  
-	  
-	    //------------------------------------------------------------
-	    //  Apply correction for finite depth of hit:
-	  
-	    float x1, y1;
-	    float zV = vertex.Z();
-	    float z0 = m_CCALfront - zV;
-	    if(sW) {
-	      float dz;
-	      dz = shower_depth(e);
-	      float zk = 1. / (1. + dz/z0);
-	      x1 = zk*xpos/sW;
-	      y1 = zk*ypos/sW;
-	    } else {
-	      printf("WRN bad cluster log. coord, center id = %i %f\n", idmax, e);
-	      x1 = 0.0;
-	      y1 = 0.0;
-	    }
-	  
-	    // fill cluster bank for further processing:	
-	    clust.type   = type;
-	    clust.nhits  = dime;
-	    clust.id     = idmax;
-	    clust.E      = e;
-	    clust.time   = weightedtime;
-	    clust.x      = x;
-	    clust.y      = y;
-	    clust.chi2   = chi2;
-	    clust.x1     = x1;
-	    clust.y1     = y1;
-	    clust.emax   = ecellmax;
-	    clust.status = status;
-	  
-	    cluster_storage.push_back(clust_storage);
-	    ccalcluster.push_back(clust);
+	//for( int ipattern = 0; ipattern < numPatterns; ++ipattern ) {
+	//vector< const DCCALHit* > hitPattern = hit_patterns[ipattern];
+	//n_h_hits = (int)hitPattern.size();
 	
+	
+	// if a single module has multiple hits in same event, one will overwrite the 
+	// other in the cluster pattern. for now just keep hit with larger energy.
+	
+	vector< const DCCALHit* > hit_storage;
+	cleanHitPattern( ccalhits, hit_storage );
+	n_h_hits = (int)hit_storage.size();
+	
+	
+	static int ich[MCOL][MROW];
+	for(int icol = 1; icol <= MCOL; ++icol) {
+	  for(int irow = 1; irow <= MROW; ++irow) {
+	    ECH(icol,irow)     = 0;
+	    STAT_CH(icol,irow) = 0;
+	    if(icol>=6 && icol<=7 && irow>=6 && irow<=7) { STAT_CH(icol,irow) = -1; }
+	    ich[icol-1][irow-1] = (12-icol)+(12-irow)*12;
 	  }
 	}
+	  
+	NCOL = 12; NROW = 12;
+	SET_XSIZE = CRYS_SIZE_X; SET_YSIZE = CRYS_SIZE_Y;
+	  
+	for (int i = 0; i < n_h_hits; i++) {
+	  const DCCALHit *ccalhit = hit_storage[i];  
+	  int row   = 12-ccalhit->row;
+	  int col   = 12-ccalhit->column;
+	  ECH(col,row) = int(ccalhit->E*10.+0.5);
+	}
+	  
+	main_island_();
+	  
+	int init_clusters = adcgam_cbk_.nadcgam;
+	for(int k = 0; k < init_clusters; ++k)  {
+	  
+	  cluster_t clust_storage; // stores hit information of cluster cells
+	  ccalcluster_t clust;     // stores cluster parameters
+
+	  // results of main_island_():
+	  float e     = adcgam_cbk_.u.fadcgam[k][0];
+	  float x     = adcgam_cbk_.u.fadcgam[k][1];
+	  float y     = adcgam_cbk_.u.fadcgam[k][2];
+	  float xc    = adcgam_cbk_.u.fadcgam[k][4];
+	  float yc    = adcgam_cbk_.u.fadcgam[k][5];
+	  float chi2  = adcgam_cbk_.u.fadcgam[k][6];
+	  int type    = adcgam_cbk_.u.iadcgam[k][7];
+	  int dime    = adcgam_cbk_.u.iadcgam[k][8];
+	  int status  = adcgam_cbk_.u.iadcgam[k][10];
+	    
+	  if( dime < MIN_CLUSTER_BLOCK_COUNT ) { continue; } 
+	  if( e < MIN_CLUSTER_ENERGY || e > MAX_CLUSTER_ENERGY ) { continue; }
+	  n_h_clusters += 1;
+	  
+	  
+	  //------------------------------------------------------------
+	  //  Do energy and position corrections:
+	  
+	  float ecellmax = -1; int idmax = -1;
+	  float sW   = 0.0;
+	  float xpos = 0.0;
+	  float ypos = 0.0;
+	  float e1   = 0.0;
+	  float W;
+	  
+	  // get id of cell with max energy:
+	  for(int j = 0; j < (dime>MAX_CC ? MAX_CC : dime); ++j) {
+	    float ecell = 1.e-4*(float)ICL_IENER(k,j);
+	    int id = ICL_INDEX(k,j);
+	    int kx = (id/100), ky = id%100;
+	    id = ich[kx-1][ky-1];
+	    e1 += ecell;
+	    if(ecell>ecellmax) {
+	      ecellmax = ecell;
+	      idmax = id;
+	    }
+	  }
+	  // x and y pos of max cell
+	  float xmax    = ccalGeom.positionOnFace(idmax).X();
+	  float ymax    = ccalGeom.positionOnFace(idmax).Y();
+	  
+	  
+	  // loop over hits in cluster and fill clust_storage
+	  int ccal_id;
+	  for(int j = 0; j < (dime>MAX_CC ? MAX_CC : dime); ++j) {
+	    int id = ICL_INDEX(k,j);
+	    int kx = (id/100), ky = id%100;
+	    ccal_id = ich[kx-1][ky-1];
+	  
+	    float ecell  = 1.e-4*(float)ICL_IENER(k,j);
+	    float xcell  = ccalGeom.positionOnFace(ccal_id).X();
+	    float ycell  = ccalGeom.positionOnFace(ccal_id).Y();
+	    
+	    if(type%10 == 1 || type%10 == 2) {
+	      xcell += xc;
+	      ycell += yc;
+	    }
+	    
+	      
+	    float hittime = 0.;
+	    for(int ihit = 0; ihit < n_h_hits; ihit++) {
+	      int trialid = 12*(hit_storage[ihit]->row) + hit_storage[ihit]->column;
+	      if(trialid == ccal_id) {
+	        hittime = hit_storage[ihit]->t;
+		//iop = hit_storage[ihit]->intOverPeak;
+		break;
+	      }
+	    }
+	    
+	    if( ecell > 0.009 && fabs(xcell-xmax) < 6. && fabs(ycell-ymax) < 6.) {
+	      W = 4.2 + log(ecell/e);
+	      if(W > 0) { // i.e. if cell has > 1.5% of cluster energy
+		sW   += W;
+		xpos += xcell*W;
+		ypos += ycell*W;
+	      }
+	    }
+	    
+	    clust_storage.id[j] = ccal_id;
+	    clust_storage.E[j]  = ecell;
+	    clust_storage.x[j]  = xcell;
+	    clust_storage.y[j]  = ycell;
+	    clust_storage.t[j]  = hittime;
+	    
+	  }
+
+	  for(int j = dime; j < MAX_CC; ++j)  // zero the rest
+	    clust_storage.id[j] = -1;
+	  
+	  float weightedTime = getEnergyWeightedTime( clust_storage, dime );
+	  float showerTime = getCorrectedTime( weightedTime, e );
+	  
+	  cout << "\n";
+	  cout << "Uncorrected Time: " << weightedTime << endl;
+	  cout << "Corrected Time:   " << showerTime << endl;
+	  
+	  //------------------------------------------------------------
+	  //  Apply correction for finite depth of hit:
+	  
+	  float x1, y1;
+	  float zV = vertex.Z();
+	  float z0 = m_CCALfront - zV;
+	  if(sW) {
+	    float dz;
+	    dz = shower_depth(e);
+	    float zk = 1. / (1. + dz/z0);
+	    x1 = zk*xpos/sW;
+	    y1 = zk*ypos/sW;
+	  } else {
+	    printf("WRN bad cluster log. coord, center id = %i %f\n", idmax, e);
+	    x1 = 0.0;
+	    y1 = 0.0;
+	  }
+	  
+	  // fill cluster bank for further processing:	
+	  clust.type   = type;
+	  clust.nhits  = dime;
+	  clust.id     = idmax;
+	  clust.E      = e;
+	  clust.time   = showerTime;
+	  clust.x      = x;
+	  clust.y      = y;
+	  clust.chi2   = chi2;
+	  clust.x1     = x1;
+	  clust.y1     = y1;
+	  clust.emax   = ecellmax;
+	  clust.status = status;
+	  
+	  cluster_storage.push_back(clust_storage);
+	  ccalcluster.push_back(clust);
+	
+	}
+
 
 	// Release the lock
-	// japp->Unlock("CCALShower_factory");
-	//pthread_mutex_unlock(&mutex);
 	lck.unlock();
+	
 
 	if(n_h_clusters == 0) return NOERROR;
 	final_cluster_processing(ccalcluster, n_h_clusters); 
+	
+	
+	//------------------------------------------------------------
+	//  Fill Shower Object:
 	
 	for(int k = 0; k < n_h_clusters; ++k) {
 	
@@ -660,6 +666,32 @@ float DCCALShower_factory::getEnergyWeightedTime( cluster_t cluster_storage, int
 	return weightedtime;
 
 }
+
+
+
+//------------------------
+// getCorrectedTime
+//------------------------
+
+float DCCALShower_factory::getCorrectedTime( float time, float energy ) 
+{
+
+	float p0[2] = {0.9531, 0.3847};
+	float p1[2] = {0.9374, 1.5006};
+	float p2[2] = {-2.5223, -0.3751};
+	float p3[2] = {0.9413, -0.1129};
+	
+	int iPar;
+	if( energy < 1.0 ) iPar = 0;
+	else iPar = 1;
+	
+	float dt = p0[iPar]*exp(p1[iPar] + p2[iPar]*energy) + p3[iPar];
+	float t_cor = time - dt;
+	
+	return t_cor;
+}
+
+
 
 
 
